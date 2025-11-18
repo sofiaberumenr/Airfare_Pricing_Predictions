@@ -1,0 +1,46 @@
+=== ARIMA MODEL SUMMARY ===
+
+Series: ts_price 
+ARIMA(0,1,1)(1,0,0)[7] 
+
+Coefficients:
+          ma1    sar1
+      -0.6380  0.1539
+s.e.   0.0566  0.0775
+
+sigma^2 = 143.3:  log likelihood = -662.56
+AIC=1331.12   AICc=1331.26   BIC=1340.52
+
+Training set error measures:
+                     ME     RMSE     MAE        MPE     MAPE      MASE        ACF1
+Training set -0.8145534 11.86443 8.29944 -0.3280185 2.397032 0.6567139 0.008134546
+
+
+=== ETS MODEL SUMMARY ===
+
+ETS(A,N,N) 
+
+Call:
+ets(y = ts_price)
+
+  Smoothing parameters:
+    alpha = 0.3735 
+
+  Initial states:
+    l = 362.3518 
+
+  sigma:  12.0782
+
+     AIC     AICc      BIC 
+1735.273 1735.416 1744.698 
+
+Training set error measures:
+                     ME     RMSE      MAE        MPE     MAPE      MASE        ACF1
+Training set -0.7682594 12.00737 8.457076 -0.3250926 2.435678 0.6691873 -0.01832948
+
+
+=== MODEL COMPARISON ===
+
+  Model      AIC      BIC
+1 ARIMA 1331.118 1340.525
+2   ETS 1735.273 1744.698
