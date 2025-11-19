@@ -26,8 +26,8 @@ if (!require(smooth)) {
 # Load the daily time series data
 flight.data <- read.csv("data/flight_daily_timeseries.csv")
 
-# Convert date column to Date type
-flight.data$searchDate <- as.Date(flight.data$searchDate)
+# Convert date column to Date type (handle DD/MM/YY format)
+flight.data$searchDate <- as.Date(flight.data$searchDate, format = "%d/%m/%y")
 
 # Sort by date
 flight.data <- flight.data %>% arrange(searchDate)
@@ -39,6 +39,7 @@ head(flight.data)
 summary(flight.data$totalFare_mean)
 
 # Create time series object (frequency = 7 for weekly seasonality)
+# Using weekly frequency since we have ~6 months of daily data
 tsfare <- ts(flight.data$totalFare_mean, frequency = 7)
 
 # Check the time series
@@ -58,9 +59,13 @@ print(p)
 # Interactive plotly version
 ggplotly(p)
 
-# Interactive dygraphs version
-dygraph(tsfare, main = "Daily Average Flight Prices") %>%
-  dyRangeSelector()
+# Interactive dygraphs version (skip if ts object causes issues)
+tryCatch({
+  dygraph(tsfare, main = "Daily Average Flight Prices") %>%
+    dyRangeSelector()
+}, error = function(e) {
+  cat("Note: Skipping dygraph due to ts object format\n")
+})
 
 # Check subset of data
 window(tsfare, start = 1, end = 50)  # First 50 days
@@ -145,6 +150,7 @@ tryCatch({
 
 # 5. Simple Exponential Smoothing
 fare.ses <- ses(tsfare_train, h = n_test)
+summary(fare.ses)
 
 # 6. ETS (Exponential Smoothing State Space)
 fit.ets <- ets(tsfare_train)
