@@ -24,7 +24,8 @@ if (!require(smooth)) {
 # ============================================================================
 
 # Load the daily time series data
-flight.data <- read.csv("data/flight_daily_timeseries.csv")
+flight.data <- read.csv("data/flight_daily_timeseries.csv",
+                        stringsAsFactors = FALSE)
 
 # Convert date column to Date type (handle DD/MM/YY format)
 flight.data$searchDate <- as.Date(flight.data$searchDate, format = "%d/%m/%y")
@@ -50,14 +51,11 @@ tsfare
 # ============================================================================
 
 # Basic plot
-p <- autoplot(tsfare) +
-  ggtitle("Daily Average Flight Prices") +
-  xlab("Time") +
-  ylab("Average Total Fare ($)")
-print(p)
+ggplot(flight.data, aes(x = searchDate, y = totalFare_mean)) +
+  geom_line() +
+  labs(title = "Daily Average Flight Prices", x = "Date", 
+       y = "Average Total Fare ($)")
 
-# Interactive plotly version
-ggplotly(p)
 
 # Interactive dygraphs version (skip if ts object causes issues)
 tryCatch({
@@ -75,7 +73,7 @@ window(tsfare, start = 1, end = 50)  # First 50 days
 # ============================================================================
 
 # Lag plots
-gglagplot(tsfare, set.lags = 1, diag.col = "black", do.lines = FALSE)
+gglagplot(tsfare, set.lags = 1,diag.col = "black", do.lines = FALSE)
 gglagplot(tsfare, set.lags = 7, diag.col = "black", do.lines = FALSE)  # Weekly lag
 
 # ACF and PACF
@@ -111,6 +109,30 @@ tsforecast <- forecast(tsfare_train, h = n_test)
 autoplot(tsforecast)
 summary(tsforecast)
 
+# -----------------------------
+# Plot with actual dates
+# -----------------------------
+dates_train <- flight.data$searchDate[1:n_train]
+dates_test <- flight.data$searchDate[(n_train + 1):n_total]
+
+df_forecast <- data.frame(
+    Date = c(dates_train, dates_test),
+    Actual = c(tsfare_train, rep(NA, n_test)),
+    Forecast = c(rep(NA, n_train), tsforecast$mean),
+    Lo80 = c(rep(NA, n_train), tsforecast$lower[,1]),
+    Hi80 = c(rep(NA, n_train), tsforecast$upper[,1]),
+    Lo99 = c(rep(NA, n_train), tsforecast$lower[,2]),
+    Hi99 = c(rep(NA, n_train), tsforecast$upper[,2])
+  )
+  
+  ggplot(df_forecast, aes(x = Date)) +
+    geom_line(aes(y = Actual), color = "black") +
+    geom_line(aes(y = Forecast), color = "blue") +
+    geom_ribbon(aes(ymin = Lo80, ymax = Hi80), fill = "blue", alpha = 0.2) +
+    geom_ribbon(aes(ymin = Lo99, ymax = Hi99), fill = "blue", alpha = 0.1) +
+    labs(title = "Naive Forecast with 80% and 99% Confidence Intervals",
+         x = "Date", y = "Average Total Fare ($)") +
+    theme_minimal()
 # ============================================================================
 # 6. DECOMPOSITION
 # ============================================================================
@@ -303,18 +325,31 @@ Box.test(fare.sarima$residuals, lag = 10, type = "Lj")
 
 cat("\n=== ACCURACY ON TEST DATA ===\n")
 
-# Convert to numeric vectors to avoid window() issues
+# Convert forecasts to numeric vectors
+h <- length(tsfare_test)  # forecast horizon
+
+pred_naive   <- as.numeric(forecast::naive(tsfare_train, h = h)$mean)
+pred_ave     <- as.numeric(forecast::meanf(tsfare_train, h = h)$mean)
+pred_drift   <- as.numeric(forecast::rwf(tsfare_train, drift = TRUE, h = h)$mean)
+pred_sma     <- as.numeric(smooth::sma(tsfare_train, h = h)$forecast)  # SMA uses $forecast
+pred_ses     <- as.numeric(forecast::ses(tsfare_train, h = h)$mean)
+pred_ets     <- as.numeric(forecast::forecast(forecast::ets(tsfare_train), h = h)$mean)
+pred_arma    <- as.numeric(forecast::forecast(forecast::auto.arima(tsfare_train, d = 0, seasonal = FALSE), h = h)$mean)
+pred_arima   <- as.numeric(forecast::forecast(forecast::auto.arima(tsfare_train, seasonal = FALSE), h = h)$mean)
+pred_sarima  <- as.numeric(forecast::forecast(forecast::auto.arima(tsfare_train, seasonal = TRUE), h = h)$mean)
+
+# Compute test set accuracy
 test_actual <- as.numeric(tsfare_test)
 
-acc_naive <- accuracy(as.numeric(fare.naive$mean), test_actual)
-acc_ave <- accuracy(as.numeric(fare.ave$mean), test_actual)
-acc_drift <- accuracy(as.numeric(fare.drift$mean), test_actual)
-acc_sma <- accuracy(as.numeric(fare.sma$forecast), test_actual)
-acc_ses <- accuracy(as.numeric(fare.ses$mean), test_actual)
-acc_ets <- accuracy(as.numeric(fare.ets$mean), test_actual)
-acc_arma <- accuracy(as.numeric(fare.arma$mean), test_actual)
-acc_arima <- accuracy(as.numeric(fare.arima$mean), test_actual)
-acc_sarima <- accuracy(as.numeric(fare.sarima$mean), test_actual)
+acc_naive  <- accuracy(pred_naive, test_actual)
+acc_ave    <- accuracy(pred_ave, test_actual)
+acc_drift  <- accuracy(pred_drift, test_actual)
+acc_sma    <- accuracy(pred_sma, test_actual)
+acc_ses    <- accuracy(pred_ses, test_actual)
+acc_ets    <- accuracy(pred_ets, test_actual)
+acc_arma   <- accuracy(pred_arma, test_actual)
+acc_arima  <- accuracy(pred_arima, test_actual)
+acc_sarima <- accuracy(pred_sarima, test_actual)
 
 # Print accuracies
 cat("\nNaive:\n")
@@ -342,30 +377,73 @@ print(acc_sarima)
 
 cat("\n=== MODEL COMPARISON ===\n")
 
-# Create comparison table - extract test set metrics (row 2)
+# Convert all forecasts to numeric vectors
+test_actual <- as.numeric(tsfare_test)
+
+acc_naive  <- accuracy(as.numeric(fare.naive$mean), test_actual)
+acc_ave    <- accuracy(as.numeric(fare.ave$mean), test_actual)
+acc_drift  <- accuracy(as.numeric(fare.drift$mean), test_actual)
+acc_sma    <- accuracy(as.numeric(fare.sma$forecast), test_actual)  # SMA forecast
+acc_ses    <- accuracy(as.numeric(fare.ses$mean), test_actual)
+acc_ets    <- accuracy(as.numeric(fare.ets$mean), test_actual)
+acc_arma   <- accuracy(as.numeric(fare.arma$mean), test_actual)
+acc_arima  <- accuracy(as.numeric(fare.arima$mean), test_actual)
+acc_sarima <- accuracy(as.numeric(fare.sarima$mean), test_actual)
+
+# Check that none are NA
+sapply(list(acc_naive, acc_ave, acc_drift, acc_sma, acc_ses, 
+            acc_ets, acc_arma, acc_arima, acc_sarima), function(x) x)
+
+# Helper functions
+rmse <- function(pred, actual) sqrt(mean((pred - actual)^2))
+mae  <- function(pred, actual) mean(abs(pred - actual))
+mape <- function(pred, actual) mean(abs((pred - actual)/actual)) * 100
+
+test_actual <- as.numeric(tsfare_test)
+
 comparison <- data.frame(
   Model = c("Naive", "Average", "Drift", "SMA", "SES", "ETS", "ARMA", "ARIMA", "SARIMA"),
-  RMSE = c(acc_naive[1, "RMSE"], acc_ave[1, "RMSE"], acc_drift[1, "RMSE"], 
-           acc_sma[1, "RMSE"], acc_ses[1, "RMSE"], acc_ets[1, "RMSE"], 
-           acc_arma[1, "RMSE"], acc_arima[1, "RMSE"], acc_sarima[1, "RMSE"]),
-  MAE = c(acc_naive[1, "MAE"], acc_ave[1, "MAE"], acc_drift[1, "MAE"], 
-          acc_sma[1, "MAE"], acc_ses[1, "MAE"], acc_ets[1, "MAE"], 
-          acc_arma[1, "MAE"], acc_arima[1, "MAE"], acc_sarima[1, "MAE"]),
-  MAPE = c(acc_naive[1, "MAPE"], acc_ave[1, "MAPE"], acc_drift[1, "MAPE"], 
-           acc_sma[1, "MAPE"], acc_ses[1, "MAPE"], acc_ets[1, "MAPE"], 
-           acc_arma[1, "MAPE"], acc_arima[1, "MAPE"], acc_sarima[1, "MAPE"])
+  RMSE  = c(rmse(pred_naive, test_actual),
+            rmse(pred_ave, test_actual),
+            rmse(pred_drift, test_actual),
+            rmse(pred_sma, test_actual),
+            rmse(pred_ses, test_actual),
+            rmse(pred_ets, test_actual),
+            rmse(pred_arma, test_actual),
+            rmse(pred_arima, test_actual),
+            rmse(pred_sarima, test_actual)),
+  MAE   = c(mae(pred_naive, test_actual),
+            mae(pred_ave, test_actual),
+            mae(pred_drift, test_actual),
+            mae(pred_sma, test_actual),
+            mae(pred_ses, test_actual),
+            mae(pred_ets, test_actual),
+            mae(pred_arma, test_actual),
+            mae(pred_arima, test_actual),
+            mae(pred_sarima, test_actual)),
+  MAPE  = c(mape(pred_naive, test_actual),
+            mape(pred_ave, test_actual),
+            mape(pred_drift, test_actual),
+            mape(pred_sma, test_actual),
+            mape(pred_ses, test_actual),
+            mape(pred_ets, test_actual),
+            mape(pred_arma, test_actual),
+            mape(pred_arima, test_actual),
+            mape(pred_sarima, test_actual))
 )
 
-# Sort by RMSE (lower is better)
-comparison <- comparison[order(comparison$RMSE), ]
-
+# Print ranking
 cat("\n=== MODEL RANKING (by RMSE) ===\n")
+comparison <- comparison[order(comparison$RMSE), ]
 print(comparison)
 
+
+# Best model
 cat("\n🏆 BEST MODEL:", comparison$Model[1], "\n")
 cat("   RMSE:", round(comparison$RMSE[1], 2), "\n")
 cat("   MAE:", round(comparison$MAE[1], 2), "\n")
 cat("   MAPE:", round(comparison$MAPE[1], 2), "%\n")
+
 
 # Visualize comparison
 ggplot(comparison, aes(x = reorder(Model, RMSE), y = RMSE)) +
